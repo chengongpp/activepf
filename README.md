@@ -6,6 +6,6 @@
 
 ## TODO
 
-- [] 细粒度定制发送消息的数量和体积
-- [] 定制Producer和Consumer的线程数
-- [] 完成amq_watch.py
+- [x] 细粒度定制发送消息的数量和体积
+- [ ] 定制Producer和Consumer的线程数
+- [x] 完成amq_watch.py

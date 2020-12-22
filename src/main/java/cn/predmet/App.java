@@ -1,8 +1,10 @@
 package cn.predmet;
 
+import java.util.Random;
 import java.util.UUID;
 
 import javax.jms.Connection;
+import javax.jms.DeliveryMode;
 import javax.jms.JMSException;
 import javax.jms.Message;
 import javax.jms.MessageConsumer;
@@ -11,7 +13,6 @@ import javax.jms.MessageProducer;
 import javax.jms.Queue;
 import javax.jms.Session;
 import javax.jms.TextMessage;
-
 import org.apache.activemq.ActiveMQConnectionFactory;
 
 enum Role {
@@ -23,6 +24,12 @@ public class App {
         String brokerURL = "tcp://127.0.0.1:61616";
         String dstName = "QUEUE";
         Role role = Role.CONSUMER;
+        for (int i = 0; i < args.length - 1; i++) {
+            if ("brokerURL".equals(args[i])) {
+                brokerURL = args[i+1];
+                System.out.println("INIT Set brokerURL to " + brokerURL);
+            }
+        }
         ActiveMQConnectionFactory cf = new ActiveMQConnectionFactory(brokerURL);
         Connection connection;
 
@@ -53,11 +60,8 @@ public class App {
                     System.out.println("INIT disableSessionAsync");
                     break;
                 case "msgSize":
-                    msgSize = Integer.parseInt(args[i+1]);
-                    System.out.println("INIT Message to be send: " + msgSize * 10000);
-                    break;
-                case "brokerURL":
-                    brokerURL = args[i+1];
+                    msgSize = Integer.parseInt(args[i + 1]);
+                    System.out.println("INIT Message to be send: " + msgSize * 100000);
                     break;
             }
         }
@@ -65,7 +69,7 @@ public class App {
             connection = cf.createConnection();
             connection.start();
             Session session = connection.createSession(false, ackMode);
-            System.out.println("INIT Connected to broker " + brokerURL);
+            System.out.println("INIT Connected to broker " + cf.getBrokerURL());
             if (role == Role.PRODUCER) {
                 for (int i = 0; i < msgSize; i++) {
                     Thread thread = new Thread(new TestProducerApp(session, dstName));
@@ -73,7 +77,13 @@ public class App {
                 }
             } else if (role == Role.CONSUMER) {
                 Thread thread = new Thread(new TestConsumerApp(session, dstName));
+                Thread thread2 = new Thread(new TestConsumerApp(session, dstName));
+                Thread thread3 = new Thread(new TestConsumerApp(session, dstName));
+                Thread thread4 = new Thread(new TestConsumerApp(session, dstName));
                 thread.run();
+                thread2.run();
+                thread3.run();
+                thread4.run();
             } else {
                 System.out.println("ERRR You are not supposed to be here");
                 return;
@@ -84,35 +94,46 @@ public class App {
     }
 }
 
-
 class TestProducerApp implements Runnable {
-    
+
     Session session;
     Queue queue;
     MessageProducer producer;
+    private static final char[] page = "0123456789abcdefghijklmnopqrstuvwxyz".toCharArray();
+    private static final Random r = new Random();
 
     public TestProducerApp(Session session, String destinationNmae) {
         this.session = session;
         try {
             this.queue = session.createQueue(destinationNmae);
             this.producer = session.createProducer(this.queue);
-            System.out.println("INFO Producer initialized");
+            producer.setDeliveryMode(DeliveryMode.NON_PERSISTENT);
+            System.out.println("INIT Producer initialized");
         } catch (JMSException e) {
             e.printStackTrace();
         }
     }
 
+    private static String getRandomString() {
+        char[] buf = new char[768];
+        for (int i = 0; i < 768; i++) {
+            int index = r.nextInt(36);
+            buf[i] = page[index];
+        }
+        return new String(buf);
+    }
+
     @Override
     public void run() {
-        for (int i = 0 ; i < 10000; i++) {
-            try {
-                TextMessage msg = this.session.createTextMessage(UUID.randomUUID().toString());
-                this.producer.send(this.queue, msg);;
-            } catch (JMSException e) {
-                e.printStackTrace();
+        try {
+            for (int i = 0; i < 1_000_000; i++) {
+                TextMessage msg = this.session.createTextMessage(getRandomString());
+                this.producer.send(this.queue, msg);
             }
+        } catch (JMSException e) {
+            e.printStackTrace();
         }
-        System.out.println("INFO 10k messages was sent");
+        System.out.println("INFO 1M messages was sent");
     }
 }
 
@@ -141,7 +162,7 @@ class TestConsumerApp implements Runnable, MessageListener {
     public void run() {
         try {
             this.consumer.setMessageListener(this);
-            System.out.println("INIT Consumer listening");
+            System.out.println("INIT Consumer is listening");
         } catch (JMSException e) {
             e.printStackTrace();
         }
@@ -153,7 +174,6 @@ class TestConsumerApp implements Runnable, MessageListener {
         TextMessage tMsg = (TextMessage) msg;
         try {
             String content = tMsg.getText();
-            System.out.println("CSMN " + content);
         } catch (JMSException e) {
             e.printStackTrace();
         }

@@ -1,0 +1,1 @@
+java -jar -Xms512M -Xmx1024M ./target/activepf-0.1-jar-with-dependencies.jar useAsyncSend useOptimizeAck consumer disableSessionAsync 
