@@ -1,1 +1,1 @@
-java -jar -Xms512M -Xmx1024M ./target/activepf-0.1-jar-with-dependencies.jar useAsyncSend useOptimizeAck consumer disableSessionAsync 
+java -jar -Xms512M -Xmx1024M ./target/activepf-0.2-jar-with-dependencies.jar useAsyncSend useOptimizeAck consumer disableSessionAsync brokerURL tcp://192.168.56.103:61616

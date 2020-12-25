@@ -1,10 +1,10 @@
 package cn.predmet;
 
 import java.util.Random;
-import java.util.UUID;
 
 import javax.jms.Connection;
 import javax.jms.DeliveryMode;
+import javax.jms.ExceptionListener;
 import javax.jms.JMSException;
 import javax.jms.Message;
 import javax.jms.MessageConsumer;
@@ -26,7 +26,7 @@ public class App {
         Role role = Role.CONSUMER;
         for (int i = 0; i < args.length - 1; i++) {
             if ("brokerURL".equals(args[i])) {
-                brokerURL = args[i+1];
+                brokerURL = args[i + 1];
                 System.out.println("INIT Set brokerURL to " + brokerURL);
             }
         }
@@ -34,6 +34,7 @@ public class App {
         Connection connection;
 
         int ackMode = Session.AUTO_ACKNOWLEDGE;
+        int dMode = DeliveryMode.NON_PERSISTENT;
         int msgSize = 10;
 
         for (int i = 0; i < args.length; i++) {
@@ -59,6 +60,9 @@ public class App {
                     cf.setAlwaysSessionAsync(false);
                     System.out.println("INIT disableSessionAsync");
                     break;
+                case "usePersistent":
+                    dMode = DeliveryMode.PERSISTENT;
+                    break;
                 case "msgSize":
                     msgSize = Integer.parseInt(args[i + 1]);
                     System.out.println("INIT Message to be send: " + msgSize * 100000);
@@ -67,23 +71,31 @@ public class App {
         }
         try {
             connection = cf.createConnection();
+            connection.setExceptionListener(new ExceptionListener(){
+
+                @Override
+                public void onException(JMSException exception) {
+                    exception.printStackTrace();
+                }
+                
+            });
             connection.start();
             Session session = connection.createSession(false, ackMode);
             System.out.println("INIT Connected to broker " + cf.getBrokerURL());
             if (role == Role.PRODUCER) {
-                for (int i = 0; i < msgSize; i++) {
-                    Thread thread = new Thread(new TestProducerApp(session, dstName));
-                    thread.run();
-                }
+                    for (int i = 0; i < msgSize; i++) {
+                        Thread thread = new Thread(new TestProducerApp(session, dstName, dMode==DeliveryMode.PERSISTENT));
+                        thread.run();
+                    }
             } else if (role == Role.CONSUMER) {
                 Thread thread = new Thread(new TestConsumerApp(session, dstName));
                 Thread thread2 = new Thread(new TestConsumerApp(session, dstName));
                 Thread thread3 = new Thread(new TestConsumerApp(session, dstName));
                 Thread thread4 = new Thread(new TestConsumerApp(session, dstName));
-                thread.run();
-                thread2.run();
-                thread3.run();
-                thread4.run();
+                thread.start();
+                thread2.start();
+                thread3.start();
+                thread4.start();
             } else {
                 System.out.println("ERRR You are not supposed to be here");
                 return;
@@ -102,16 +114,18 @@ class TestProducerApp implements Runnable {
     private static final char[] page = "0123456789abcdefghijklmnopqrstuvwxyz".toCharArray();
     private static final Random r = new Random();
 
-    public TestProducerApp(Session session, String destinationNmae) {
+    public TestProducerApp(Session session, String destinationName) throws JMSException {
         this.session = session;
-        try {
-            this.queue = session.createQueue(destinationNmae);
-            this.producer = session.createProducer(this.queue);
-            producer.setDeliveryMode(DeliveryMode.NON_PERSISTENT);
-            System.out.println("INIT Producer initialized");
-        } catch (JMSException e) {
-            e.printStackTrace();
-        }
+        this.queue = this.session.createQueue(destinationName);
+        this.producer = this.session.createProducer(this.queue);
+        this.producer.setDeliveryMode(DeliveryMode.NON_PERSISTENT);
+        System.out.println("INIT Producer initialized");
+    }
+
+    public TestProducerApp(Session session, String destinationName, Boolean usePersistent) throws JMSException {
+        this(session, destinationName);
+        this.producer.setDeliveryMode(usePersistent ? DeliveryMode.PERSISTENT : DeliveryMode.NON_PERSISTENT);
+        System.out.println("INIT Producer uses persistent");
     }
 
     private static String getRandomString() {
@@ -130,6 +144,7 @@ class TestProducerApp implements Runnable {
                 TextMessage msg = this.session.createTextMessage(getRandomString());
                 this.producer.send(this.queue, msg);
             }
+            this.producer.close();
         } catch (JMSException e) {
             e.printStackTrace();
         }
@@ -143,18 +158,15 @@ class TestConsumerApp implements Runnable, MessageListener {
     Queue queue;
     MessageConsumer consumer;
 
-    public TestConsumerApp(Session session, String destinationNmae) {
+    public TestConsumerApp(Session session, String destinationNmae) throws JMSException {
         this.session = session;
-        try {
-            this.queue = session.createQueue(destinationNmae);
-            this.consumer = session.createConsumer(this.queue);
-        } catch (JMSException e) {
-            e.printStackTrace();
-        }
+        this.queue = session.createQueue(destinationNmae);
+        this.consumer = session.createConsumer(this.queue);
     }
 
     @Override
     protected void finalize() throws Throwable {
+        consumer.close();
         session.close();
     }
 
@@ -162,11 +174,10 @@ class TestConsumerApp implements Runnable, MessageListener {
     public void run() {
         try {
             this.consumer.setMessageListener(this);
-            System.out.println("INIT Consumer is listening");
         } catch (JMSException e) {
             e.printStackTrace();
         }
-
+        System.out.println("INIT Consumer is listening");
     }
 
     @Override
